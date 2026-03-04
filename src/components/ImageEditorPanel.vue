@@ -19,7 +19,7 @@ const overlayRef = ref<HTMLImageElement | null>(null)
 const viewportRef = ref<HTMLDivElement | null>(null)
 
 const isPositive = ref(true)
-const points = ref<number[][]>([])
+const points = ref<Array<[number, number]>>([])
 const labels = ref<number[]>([])
 const statusText = ref('请上传图片后点击画面进行分割')
 const isUploading = ref(false)
@@ -383,100 +383,245 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="panel panel-left">
-    <div class="artwork">
-      <input
-        ref="fileInputRef"
-        class="hidden-file-input"
-        type="file"
-        accept="image/*"
-        @change="onFileChange"
-      />
-      <div
-        ref="viewportRef"
-        class="editor-viewport"
-        :class="{ 'is-dragging': isDragging }"
-        @wheel.prevent="onWheel"
-        @mousedown="onPointerDown"
-        @mousemove="onPointerMove"
-        @mouseup="onPointerUp"
-        @mouseleave="onPointerUp"
+    <input
+      ref="fileInputRef"
+      class="hidden-file-input"
+      type="file"
+      accept="image/*"
+      @change="onFileChange"
+    />
+    <div
+      ref="viewportRef"
+      class="editor-viewport"
+      :class="{ 'is-dragging': isDragging }"
+      @wheel.prevent="onWheel"
+      @mousedown="onPointerDown"
+      @mousemove="onPointerMove"
+      @mouseup="onPointerUp"
+      @mouseleave="onPointerUp"
+    >
+      <div class="editor-stage" :style="stageStyle">
+        <canvas
+          ref="canvasRef"
+          class="editor-canvas"
+          @click="onCanvasClick"
+        ></canvas>
+        <img
+          ref="overlayRef"
+          class="mask-overlay"
+          alt="segmentation mask"
+        />
+      </div>
+      <div v-if="!originalImage" class="editor-placeholder">
+        点击“上传图片”后开始交互分割
+      </div>
+    </div>
+    <div class="tool-rail">
+      <button
+        class="tool-btn"
+        :class="{ 'is-active': isPositive }"
+        type="button"
+        aria-label="正交互"
+        title="正交互"
+        @click="setPositiveMode"
       >
-        <div class="editor-stage" :style="stageStyle">
-          <canvas
-            ref="canvasRef"
-            class="editor-canvas"
-            @click="onCanvasClick"
-          ></canvas>
-          <img
-            ref="overlayRef"
-            class="mask-overlay"
-            alt="segmentation mask"
-          />
-        </div>
-        <div v-if="!originalImage" class="editor-placeholder">
-          点击“上传图片”后开始交互分割
-        </div>
-      </div>
-      <div class="tool-rail">
-        <button
-          class="tool-btn"
-          :class="{ 'is-active': isPositive }"
-          type="button"
-          aria-label="正交互"
-          title="正交互"
-          @click="setPositiveMode"
-        >
-          ＋
-        </button>
-        <button
-          class="tool-btn"
-          :class="{ 'is-active': !isPositive }"
-          type="button"
-          aria-label="负交互"
-          title="负交互"
-          @click="setNegativeMode"
-        >
-          －
-        </button>
-        <button
-          class="tool-btn"
-          type="button"
-          aria-label="清除"
-          title="清除"
-          @click="resetPoints()"
-        >
-          🗑
-        </button>
-        <button
-          class="tool-btn"
-          type="button"
-          aria-label="暂存"
-          title="暂存"
-          @click="saveCurrentMask"
-        >
-          ✓
-        </button>
-      </div>
+        ＋
+      </button>
+      <button
+        class="tool-btn"
+        :class="{ 'is-active': !isPositive }"
+        type="button"
+        aria-label="负交互"
+        title="负交互"
+        @click="setNegativeMode"
+      >
+        －
+      </button>
+      <button
+        class="tool-btn"
+        type="button"
+        aria-label="清除"
+        title="清除"
+        @click="resetPoints()"
+      >
+        🗑
+      </button>
+      <button
+        class="tool-btn"
+        type="button"
+        aria-label="暂存"
+        title="暂存"
+        @click="saveCurrentMask"
+      >
+        ✓
+      </button>
+    </div>
 
-      <div class="editor-footer">
-        <button
-          class="upload-btn"
-          type="button"
-          :disabled="busy"
-          @click="openFilePicker"
-        >
-          上传图片
-        </button>
-        <button
-          class="upload-btn"
-          type="button"
-          :disabled="!originalImage"
-          @click="resetViewTransform"
-        >
-          视图复位
-        </button>
-        <div class="editor-status">{{ statusText }}</div>
-      </div>
+    <div class="editor-footer">
+      <button
+        class="upload-btn"
+        type="button"
+        :disabled="busy"
+        @click="openFilePicker"
+      >
+        上传图片
+      </button>
+      <button
+        class="upload-btn"
+        type="button"
+        :disabled="!originalImage"
+        @click="resetViewTransform"
+      >
+        视图复位
+      </button>
+      <div class="editor-status">{{ statusText }}</div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.panel {
+  background: var(--panel-bg);
+  border-radius: 18px;
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #d8ddd7;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.editor-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.editor-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.editor-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+
+.editor-viewport.is-dragging .editor-canvas {
+  cursor: grabbing;
+}
+
+.mask-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0.85;
+  display: none;
+  filter: drop-shadow(0 0 5px rgba(0, 255, 120, 0.35));
+}
+
+.editor-placeholder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  color: #5c6862;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.tool-rail {
+  position: absolute;
+  left: 14px;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.85);
+  color: #425050;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tool-btn.is-active {
+  border-color: #86c9b3;
+  background: #dff3ea;
+  color: #245447;
+}
+
+.editor-footer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.56);
+  backdrop-filter: blur(3px);
+}
+
+.upload-btn {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #40524d;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upload-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.editor-status {
+  font-size: 12px;
+  color: #4e625c;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1200px) {
+  .panel-left {
+    min-height: 320px;
+  }
+}
+</style>
