@@ -7,10 +7,15 @@ import TopBar from './components/TopBar.vue'
 
 const savedMaskFile = ref<File | null>(null)
 const savedMaskPreview = ref('')
+const selectedSpeciesList = ref<string[]>([])
 
 function handleMaskSaved(payload: { maskUrl: string; file: File }) {
   savedMaskFile.value = payload.file
   savedMaskPreview.value = payload.maskUrl
+}
+
+function handleSpeciesChange(speciesList: string[]) {
+  selectedSpeciesList.value = speciesList
 }
 </script>
 
@@ -24,10 +29,11 @@ function handleMaskSaved(payload: { maskUrl: string; file: File }) {
         :search-file="savedMaskFile"
         :reference-image="savedMaskPreview"
         controls-target="#compare-controls-host"
+        @species-change="handleSpeciesChange"
       />
     </main>
 
-    <DimensionsPanel />
+    <DimensionsPanel :species-list="selectedSpeciesList" />
   </div>
 </template>
 

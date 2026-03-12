@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import defaultPaintingUrl from '../assets/furongjinjitu.jpg'
 
 interface Props {
   backendBase?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  backendBase: 'http://127.0.0.1:8000'
+  backendBase:
+    typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000'
 })
 
 const emit = defineEmits<{
@@ -50,6 +52,7 @@ const modeLabel = computed(() =>
 
 const busy = computed(() => isUploading.value)
 const currentScale = computed(() => fitScale.value * zoomScale.value)
+const hasMaskOverlay = computed(() => Boolean(overlayUrl.value))
 
 const stageStyle = computed(() => ({
   width: `${imageWidth.value}px`,
@@ -66,6 +69,10 @@ async function onFileChange(event: Event) {
   const file = input.files?.[0]
   if (!file) return
 
+  await uploadAndInitFile(file)
+}
+
+async function uploadAndInitFile(file: File) {
   isUploading.value = true
   statusText.value = '正在上传并预计算特征...'
 
@@ -358,21 +365,43 @@ function resetPoints(updateInfo = true) {
   }
 }
 
-function saveCurrentMask() {
-  if (!currentMaskBlob.value) {
-    statusText.value = '暂无可保存的分割结果'
+async function saveCurrentMask() {
+  if (currentMaskBlob.value) {
+    persistSavedBlob(currentMaskBlob.value)
+    statusText.value = `已暂存到前端，共 ${savedMasks.value.length} 份结果`
     return
   }
 
+  if (!canvasRef.value || !originalImage.value) {
+    statusText.value = '暂无可保存内容，请先加载图片'
+    return
+  }
+
+  const fallbackBlob = await canvasToBlob(canvasRef.value)
+  if (!fallbackBlob) {
+    statusText.value = '暂存失败：无法导出当前画布'
+    return
+  }
+
+  persistSavedBlob(fallbackBlob)
+  statusText.value = `已暂存当前画布并触发检索，共 ${savedMasks.value.length} 份结果`
+}
+
+function persistSavedBlob(blob: Blob) {
   const fileName = `edited-mask-${Date.now()}.png`
-  const savedFile = new File([currentMaskBlob.value], fileName, { type: 'image/png' })
-  const savedUrl = URL.createObjectURL(currentMaskBlob.value)
+  const savedFile = new File([blob], fileName, { type: 'image/png' })
+  const savedUrl = URL.createObjectURL(blob)
   savedMasks.value.push(savedUrl)
   emit('saved', {
     maskUrl: savedUrl,
     file: savedFile
   })
-  statusText.value = `已暂存到前端，共 ${savedMasks.value.length} 份结果`
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), 'image/png')
+  })
 }
 
 onBeforeUnmount(() => {
@@ -384,6 +413,26 @@ onBeforeUnmount(() => {
   }
   savedMasks.value.forEach((url) => URL.revokeObjectURL(url))
 })
+
+onMounted(() => {
+  void initializeDefaultImage()
+})
+
+async function initializeDefaultImage() {
+  if (originalImage.value || isUploading.value) return
+
+  try {
+    const response = await fetch(defaultPaintingUrl)
+    if (!response.ok) {
+      throw new Error(`默认图加载失败: ${response.status}`)
+    }
+    const blob = await response.blob()
+    const file = new File([blob], 'furongjinjitu.jpg', { type: blob.type || 'image/jpeg' })
+    await uploadAndInitFile(file)
+  } catch (error) {
+    statusText.value = `默认图初始化失败：${error instanceof Error ? error.message : '未知错误'}`
+  }
+}
 </script>
 
 <template>
@@ -400,7 +449,7 @@ onBeforeUnmount(() => {
         <div
           ref="viewportRef"
           class="editor-viewport"
-          :class="{ 'is-dragging': isDragging }"
+          :class="{ 'is-dragging': isDragging, 'has-mask': hasMaskOverlay }"
           @wheel.prevent="onWheel"
           @mousedown="onPointerDown"
           @mousemove="onPointerMove"
@@ -545,6 +594,11 @@ onBeforeUnmount(() => {
   height: 100%;
   display: block;
   cursor: grab;
+  transition: filter 180ms ease;
+}
+
+.editor-viewport.has-mask .editor-canvas {
+  filter: brightness(0.44) saturate(0.75) contrast(1.06);
 }
 
 .editor-viewport.is-dragging .editor-canvas {
@@ -559,9 +613,10 @@ onBeforeUnmount(() => {
   height: 100%;
   z-index: 10;
   pointer-events: none;
-  opacity: 0.85;
+  opacity: 0.98;
   display: none;
-  filter: drop-shadow(0 0 5px rgba(0, 255, 120, 0.35));
+  mix-blend-mode: screen;
+  filter: saturate(1.45) contrast(1.28) drop-shadow(0 0 10px rgba(0, 255, 120, 0.55));
 }
 
 .editor-placeholder {

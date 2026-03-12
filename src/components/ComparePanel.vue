@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import uploadIconUrl from '../assets/上传图标.svg'
 
 type WeightKey = 'structure' | 'color' | 'texture'
 
@@ -32,6 +33,12 @@ interface RepresentativeNode {
   imageUrl: string
 }
 
+interface GalleryItem {
+  id: string
+  imageUrl: string
+  species: string
+}
+
 interface Props {
   title?: string
   promptPlaceholder?: string
@@ -54,11 +61,17 @@ const props = withDefaults(defineProps<Props>(), {
   ],
   referenceImage: '',
   galleryImages: () => [],
-  searchApiBase: 'http://127.0.0.1:8001',
-  promptApiBase: 'http://127.0.0.1:8000',
+  searchApiBase:
+    typeof window !== 'undefined' ? `http://${window.location.hostname}:8001` : 'http://127.0.0.1:8001',
+  promptApiBase:
+    typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000',
   controlsTarget: '',
   searchFile: null
 })
+
+const emit = defineEmits<{
+  (e: 'species-change', speciesList: string[]): void
+}>()
 
 const weightRows = ref<WeightItem[]>(
   props.weights.map((weight) => ({ ...weight, value: clamp(weight.value, 0, 1) }))
@@ -71,7 +84,8 @@ const promptError = ref('')
 const promptText = ref('')
 const hoverItem = ref<SearchItem | null>(null)
 const pinnedItem = ref<SearchItem | null>(null)
-const galleryUploads = ref<string[]>([])
+const galleryUploads = ref<GalleryItem[]>([])
+const selectedSpecies = ref<string[]>([])
 const orbitRef = ref<HTMLDivElement | null>(null)
 const orbitScale = ref(1)
 const orbitOffsetX = ref(0)
@@ -239,7 +253,7 @@ const displayImageUrl = computed(() => {
   return resolveImageUrl(first.path)
 })
 
-const galleryResultImages = computed(() => galleryUploads.value)
+const galleryResultImages = computed<GalleryItem[]>(() => galleryUploads.value)
 
 const arcStroke = computed(() => ({
   structure: String(getWeightValue('structure')),
@@ -296,7 +310,7 @@ onBeforeUnmount(() => {
     clearInterval(controlsHostProbeTimer)
     controlsHostProbeTimer = null
   }
-  galleryUploads.value.forEach((url) => URL.revokeObjectURL(url))
+  galleryUploads.value.forEach((item) => URL.revokeObjectURL(item.imageUrl))
 })
 
 onMounted(() => {
@@ -423,7 +437,31 @@ function clearPinnedPreview() {
 
 function addPinnedToGallery() {
   if (!pinnedItem.value) return
-  galleryUploads.value.unshift(resolveImageUrl(pinnedItem.value.path))
+  const species = pinnedItem.value.label.trim()
+  const item: GalleryItem = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    imageUrl: resolveImageUrl(pinnedItem.value.path),
+    species
+  }
+  galleryUploads.value.unshift(item)
+  syncSelectedSpeciesFromGallery()
+}
+
+function removeGalleryItem(itemId: string) {
+  galleryUploads.value = galleryUploads.value.filter((item) => item.id !== itemId)
+  syncSelectedSpeciesFromGallery()
+}
+
+function syncSelectedSpeciesFromGallery() {
+  const deduped: string[] = []
+  for (const item of galleryUploads.value) {
+    const sp = item.species.trim()
+    if (sp && !deduped.includes(sp)) {
+      deduped.push(sp)
+    }
+  }
+  selectedSpecies.value = deduped
+  emit('species-change', [...deduped])
 }
 
 function onOrbitWheel(event: WheelEvent) {
@@ -605,7 +643,7 @@ function clamp(value: number, min: number, max: number) {
                   <span>{{ weight.label }}</span>
                   <input
                     v-model.number="weight.value"
-                    class="weight-slider"
+                    :class="['weight-slider', `tone-${weight.tone ?? 'mint'}`]"
                     type="range"
                     min="0"
                     max="1"
@@ -661,7 +699,7 @@ function clamp(value: number, min: number, max: number) {
                   <span>{{ weight.label }}</span>
                   <input
                     v-model.number="weight.value"
-                    class="weight-slider"
+                    :class="['weight-slider', `tone-${weight.tone ?? 'mint'}`]"
                     type="range"
                     min="0"
                     max="1"
@@ -691,7 +729,10 @@ function clamp(value: number, min: number, max: number) {
             <div v-if="!props.searchFile" class="orbit-state">
               左侧编辑完成后点击“暂存”，自动调用后端生成轨道图
             </div>
-            <div v-else-if="isSearching" class="orbit-state">正在计算轨道图...</div>
+            <div v-else-if="isSearching" class="orbit-state orbit-state-loading">
+              <span class="loading-spinner" aria-hidden="true"></span>
+              <span>正在计算轨道图...</span>
+            </div>
             <div v-else-if="searchError" class="orbit-state orbit-state-error">{{ searchError }}</div>
             <div v-else-if="!searchResults.length" class="orbit-state">暂无检索结果</div>
             <div class="orbit-scene" :style="orbitSceneStyle">
@@ -809,7 +850,7 @@ function clamp(value: number, min: number, max: number) {
               :disabled="!pinnedItem"
               @click="addPinnedToGallery"
             >
-              ⤴
+              <img class="upload-icon-img" :src="uploadIconUrl" alt="upload" />
             </button>
           </div>
           <slot name="image">
@@ -827,12 +868,24 @@ function clamp(value: number, min: number, max: number) {
           <slot name="gallery">
             <div class="gallery-grid">
               <div v-if="!galleryResultImages.length" class="gallery-empty">暂无图片，点击 Image 右上角上传</div>
-              <img
-                v-for="(image, index) in galleryResultImages"
-                :key="`${image}-${index}`"
-                :src="image"
-                :alt="`thumb ${index + 1}`"
-              />
+              <div
+                v-for="(item, index) in galleryResultImages"
+                :key="item.id"
+                class="gallery-item"
+              >
+                <img
+                  :src="item.imageUrl"
+                  :alt="`thumb ${index + 1}`"
+                />
+                <button
+                  class="gallery-remove-btn"
+                  type="button"
+                  title="移除"
+                  @click="removeGalleryItem(item.id)"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </slot>
         </div>
@@ -975,11 +1028,15 @@ function clamp(value: number, min: number, max: number) {
   flex: 1;
   display: flex;
   flex-direction: column;
+  margin-top: 14px;
 }
 
 .weights-list {
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
 }
 
 .weight-row {
@@ -988,12 +1045,23 @@ function clamp(value: number, min: number, max: number) {
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  margin-top: 8px;
+  padding: 2px 0;
 }
 
 .weight-slider {
   width: 100%;
+}
+
+.weight-slider.tone-mint {
   accent-color: var(--accent-mint);
+}
+
+.weight-slider.tone-blue {
+  accent-color: var(--accent-blue);
+}
+
+.weight-slider.tone-pink {
+  accent-color: var(--accent-pink);
 }
 
 .weight-value {
@@ -1041,10 +1109,30 @@ function clamp(value: number, min: number, max: number) {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 10px;
   text-align: center;
   padding: 0 24px;
   color: #6c776f;
   font-size: 13px;
+}
+
+.loading-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(90, 108, 100, 0.24);
+  border-top-color: #4f6b62;
+  animation: orbit-spin 0.75s linear infinite;
+}
+
+@keyframes orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .orbit-state-error {
@@ -1176,7 +1264,7 @@ function clamp(value: number, min: number, max: number) {
 .panel-subtitle {
   font-weight: 700;
   font-size: 14px;
-  text-transform: uppercase;
+  margin-bottom: 12px;
   letter-spacing: 0.06em;
   color: #6a756c;
 }
@@ -1196,6 +1284,14 @@ function clamp(value: number, min: number, max: number) {
   color: #4f5c56;
   font-size: 14px;
   cursor: pointer;
+}
+
+.upload-icon-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
 }
 
 .upload-icon-btn:disabled {
@@ -1259,6 +1355,39 @@ function clamp(value: number, min: number, max: number) {
   border-radius: 10px;
   height: 80px;
   object-fit: cover;
+}
+
+.gallery-item {
+  position: relative;
+}
+
+.gallery-item img {
+  width: 100%;
+}
+
+.gallery-remove-btn {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(24, 26, 26, 0.72);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 0.16s ease;
+}
+
+.gallery-item:hover .gallery-remove-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 @media (max-width: 1200px) {
