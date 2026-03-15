@@ -118,20 +118,25 @@ const chartLayout = computed(() => {
   const padding = 16
   const defaultGap = 10
 
-  const findResultForSpecies = (species: string) => {
-    for (const layer of layers) {
-      const item = layer.results.find((res) => res.species === species)
-      if (item) return item
-    }
-    return null
-  }
-
   const rawItems = speciesOrder.value
     .map((species) => {
-      const base = findResultForSpecies(species)
-      if (!base || !base.x_axis.length) return null
-      const minX = base.x_axis[0] ?? 0
-      const maxX = base.x_axis[base.x_axis.length - 1] ?? 0
+      const speciesResults = layers
+        .flatMap((layer) => layer.results)
+        .filter((item) => item.species === species && item.x_axis.length > 0)
+
+      if (!speciesResults.length) return null
+
+      // 每个物种使用“所有层(all+朝代)”的并集横轴范围，确保上下山峰和叠加层严格落在同一段内。
+      let minX = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      for (const item of speciesResults) {
+        const left = item.x_axis[0] ?? 0
+        const right = item.x_axis[item.x_axis.length - 1] ?? 0
+        if (left < minX) minX = left
+        if (right > maxX) maxX = right
+      }
+
+      if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return null
       const span = Math.max(0.04, maxX - minX)
       return { species, minX, maxX, span }
     })
@@ -337,7 +342,7 @@ function ridgePath(item: DensityResult, segment: SegmentLayout, type: 'photo' | 
 
   const points = xVals.map((x, index) => {
     const density = yVals[index] ?? 0
-    const nx = (x - segment.domainMin) / domainSpan
+    const nx = clamp((x - segment.domainMin) / domainSpan, 0, 1)
     const px = segment.startX + nx * segment.width
     const py = type === 'painting' ? axisY.value - density * scale : axisY.value + density * scale
     return `${px.toFixed(2)},${py.toFixed(2)}`
@@ -373,7 +378,7 @@ function getPeakAnchor(item: DensityResult, segment: SegmentLayout, type: 'photo
   const density = yVals[maxIndex] ?? 0
   const scale = type === 'photo' ? densityScale.value.photoScale : densityScale.value.paintScale
   const domainSpan = Math.max(1e-6, segment.domainMax - segment.domainMin)
-  const nx = (x - segment.domainMin) / domainSpan
+  const nx = clamp((x - segment.domainMin) / domainSpan, 0, 1)
   const px = segment.startX + nx * segment.width
   const py = type === 'painting' ? axisY.value - density * scale : axisY.value + density * scale
 
