@@ -8,6 +8,7 @@ import TopBar from './components/TopBar.vue'
 const savedMaskFile = ref<File | null>(null)
 const savedMaskPreview = ref('')
 const selectedSpeciesList = ref<string[]>([])
+const selectedPainting = ref<'furongjinjitu' | 'zhuquetu'>('furongjinjitu')
 
 function handleMaskSaved(payload: { maskUrl: string; file: File }) {
   savedMaskFile.value = payload.file
@@ -21,10 +22,22 @@ function handleSpeciesChange(speciesList: string[]) {
 
 <template>
   <div class="page">
-    <TopBar />
+    <TopBar>
+      <template #action>
+        <div class="painting-select-wrap">
+          <select v-model="selectedPainting" class="painting-select" aria-label="选择画作">
+            <option value="furongjinjitu">芙蓉锦鸡图</option>
+            <option value="zhuquetu">竹雀图</option>
+          </select>
+        </div>
+      </template>
+    </TopBar>
 
     <main class="main-grid">
-      <ImageEditorPanel @saved="handleMaskSaved" />
+      <ImageEditorPanel
+        :preset-image="selectedPainting"
+        @saved="handleMaskSaved"
+      />
       <ComparePanel
         :search-file="savedMaskFile"
         :reference-image="savedMaskPreview"
@@ -41,10 +54,10 @@ function handleSpeciesChange(speciesList: string[]) {
 .page {
   width: 100%;
   height: 100%;
-  padding: 14px;
+  padding: 10px 14px 14px;
   display: grid;
-  grid-template-rows: 34px minmax(0, 0.92fr) minmax(0, 0.56fr);
-  gap: 8px;
+  grid-template-rows: 30px minmax(0, 0.92fr) minmax(0, 0.56fr);
+  gap: 6px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -60,10 +73,29 @@ function handleSpeciesChange(speciesList: string[]) {
   justify-self: center;
 }
 
+.painting-select-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.painting-select {
+  border: 1px solid var(--panel-border);
+  background: #ffffff;
+  border-radius: 999px;
+  padding: 6px 28px 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+}
+
 @media (max-width: 1200px) {
   .page {
-    padding: 12px;
-    grid-template-rows: 34px minmax(0, 0.9fr) minmax(0, 0.62fr);
+    padding: 9px 12px 12px;
+    grid-template-rows: 28px minmax(0, 0.9fr) minmax(0, 0.62fr);
+    gap: 6px;
   }
 
   .main-grid {

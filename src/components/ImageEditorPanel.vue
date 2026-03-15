@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import defaultPaintingUrl from '../assets/furongjinjitu.jpg'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import furongjinjituUrl from '../assets/furongjinjitu.jpg'
+import zhuquetuUrl from '../assets/zhuquetu.jpg'
+
+type PresetImageKey = 'furongjinjitu' | 'zhuquetu'
 
 interface Props {
   backendBase?: string
+  presetImage?: PresetImageKey
 }
 
 const props = withDefaults(defineProps<Props>(), {
   backendBase:
-    typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000'
+    typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000',
+  presetImage: 'furongjinjitu'
 })
 
 const emit = defineEmits<{
@@ -45,6 +50,17 @@ let dragOriginY = 0
 let dragMoved = false
 let segmentAbortController: AbortController | null = null
 let requestSerial = 0
+
+const PRESET_IMAGE_CONFIG: Record<PresetImageKey, { url: string; fileName: string }> = {
+  furongjinjitu: {
+    url: furongjinjituUrl,
+    fileName: 'furongjinjitu.jpg'
+  },
+  zhuquetu: {
+    url: zhuquetuUrl,
+    fileName: 'zhuquetu.jpg'
+  }
+}
 
 const modeLabel = computed(() =>
   isPositive.value ? '模式：正交互 (选中)' : '模式：负交互 (排除)'
@@ -248,9 +264,9 @@ function drawPoints() {
   points.value.forEach((point, index) => {
     context.fillStyle = labels.value[index] === 1 ? '#00B67A' : '#E2574C'
     context.beginPath()
-    context.arc(point[0], point[1], 10, 0, Math.PI * 2)
+    context.arc(point[0], point[1], 18, 0, Math.PI * 2)
     context.fill()
-    context.lineWidth = 2
+    context.lineWidth = 4
     context.strokeStyle = '#ffffff'
     context.stroke()
   })
@@ -415,19 +431,30 @@ onBeforeUnmount(() => {
 })
 
 onMounted(() => {
-  void initializeDefaultImage()
+  void initializePresetImage()
 })
 
-async function initializeDefaultImage() {
-  if (originalImage.value || isUploading.value) return
+watch(
+  () => props.presetImage,
+  (nextPreset, prevPreset) => {
+    if (nextPreset !== prevPreset) {
+      void initializePresetImage(true)
+    }
+  }
+)
+
+async function initializePresetImage(force = false) {
+  if ((!force && originalImage.value) || isUploading.value) return
+
+  const preset = PRESET_IMAGE_CONFIG[props.presetImage]
 
   try {
-    const response = await fetch(defaultPaintingUrl)
+    const response = await fetch(preset.url)
     if (!response.ok) {
       throw new Error(`默认图加载失败: ${response.status}`)
     }
     const blob = await response.blob()
-    const file = new File([blob], 'furongjinjitu.jpg', { type: blob.type || 'image/jpeg' })
+    const file = new File([blob], preset.fileName, { type: blob.type || 'image/jpeg' })
     await uploadAndInitFile(file)
   } catch (error) {
     statusText.value = `默认图初始化失败：${error instanceof Error ? error.message : '未知错误'}`
@@ -598,7 +625,7 @@ async function initializeDefaultImage() {
 }
 
 .editor-viewport.has-mask .editor-canvas {
-  filter: brightness(0.44) saturate(0.75) contrast(1.06);
+  filter: brightness(0.6) saturate(0.8) contrast(1.04);
 }
 
 .editor-viewport.is-dragging .editor-canvas {

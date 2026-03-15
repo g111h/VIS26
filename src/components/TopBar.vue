@@ -32,7 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 .brand {
   font-family: 'DM Serif Display', serif;
-  font-size: 18px;
+  font-size: 16px;
   letter-spacing: 1px;
   line-height: 1;
 }
@@ -54,7 +54,7 @@ const props = withDefaults(defineProps<Props>(), {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: 6px;
   }
 }
 </style>

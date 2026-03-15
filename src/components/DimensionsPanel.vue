@@ -60,11 +60,12 @@ const requestSerial = ref(0)
 
 const chartViewportRef = ref<HTMLDivElement | null>(null)
 const viewportWidth = ref(980)
+const viewportHeight = ref(260)
 let resizeObserver: ResizeObserver | null = null
 
-const axisY = 80
-const chartHeight = 236
-const ridgeAmplitude = 76
+const chartHeight = computed(() => clamp(Math.max(220, viewportHeight.value - 4), 220, 440))
+const axisY = computed(() => chartHeight.value * 0.5)
+const ridgeAmplitude = computed(() => Math.max(74, chartHeight.value * 0.42))
 
 const sortedSpeciesList = computed(() => {
   const deduped: string[] = []
@@ -187,9 +188,41 @@ const densityScale = computed(() => {
   }
 
   return {
-    photoScale: ridgeAmplitude / Math.max(1e-6, maxPhoto || 1),
-    paintScale: ridgeAmplitude / Math.max(1e-6, maxPaint || 1)
+    photoScale: ridgeAmplitude.value / Math.max(1e-6, maxPhoto || 1),
+    paintScale: ridgeAmplitude.value / Math.max(1e-6, maxPaint || 1)
   }
+})
+
+const representativeBadges = computed(() => {
+  const badges: Array<{
+    species: string
+    paintingUrl: string
+    photoUrl: string
+    paintingX: number
+    paintingY: number
+    photoX: number
+    photoY: number
+  }> = []
+
+  for (const segment of chartLayout.value.segments) {
+    const result = getLayerSpeciesResult('all', segment.species)
+    if (!result) continue
+
+    const paintingPeak = getPeakAnchor(result, segment, 'painting')
+    const photoPeak = getPeakAnchor(result, segment, 'photo')
+
+    badges.push({
+      species: segment.species,
+      paintingUrl: resolveImageUrl(result.representative_painting),
+      photoUrl: resolveImageUrl(result.representative_photo),
+      paintingX: paintingPeak.x,
+      paintingY: clamp(paintingPeak.y - 22, 16, axisY.value - 12),
+      photoX: photoPeak.x,
+      photoY: clamp(photoPeak.y + 22, axisY.value + 12, chartHeight.value - 16)
+    })
+  }
+
+  return badges
 })
 
 watch(
@@ -219,8 +252,12 @@ onBeforeUnmount(() => {
 
 function updateViewportWidth() {
   const width = chartViewportRef.value?.clientWidth ?? 0
+  const height = chartViewportRef.value?.clientHeight ?? 0
   if (width > 0) {
     viewportWidth.value = width
+  }
+  if (height > 0) {
+    viewportHeight.value = height
   }
 }
 
@@ -302,14 +339,80 @@ function ridgePath(item: DensityResult, segment: SegmentLayout, type: 'photo' | 
     const density = yVals[index] ?? 0
     const nx = (x - segment.domainMin) / domainSpan
     const px = segment.startX + nx * segment.width
-    const py = type === 'painting' ? axisY - density * scale : axisY + density * scale
+    const py = type === 'painting' ? axisY.value - density * scale : axisY.value + density * scale
     return `${px.toFixed(2)},${py.toFixed(2)}`
   })
 
   const startX = segment.startX.toFixed(2)
   const endX = (segment.startX + segment.width).toFixed(2)
-  const baseline = axisY.toFixed(2)
+  const baseline = axisY.value.toFixed(2)
   return `M ${startX} ${baseline} L ${points.join(' L ')} L ${endX} ${baseline} Z`
+}
+
+function getPeakAnchor(item: DensityResult, segment: SegmentLayout, type: 'photo' | 'painting') {
+  const yVals = type === 'photo' ? item.photo_density : item.painting_density
+  const xVals = item.x_axis
+  if (!xVals.length || xVals.length !== yVals.length) {
+    return {
+      x: segment.startX + segment.width / 2,
+      y: axisY.value
+    }
+  }
+
+  let maxIndex = 0
+  let maxValue = Number.NEGATIVE_INFINITY
+  for (let i = 0; i < yVals.length; i += 1) {
+    const value = yVals[i] ?? 0
+    if (value > maxValue) {
+      maxValue = value
+      maxIndex = i
+    }
+  }
+
+  const x = xVals[maxIndex] ?? xVals[0] ?? 0
+  const density = yVals[maxIndex] ?? 0
+  const scale = type === 'photo' ? densityScale.value.photoScale : densityScale.value.paintScale
+  const domainSpan = Math.max(1e-6, segment.domainMax - segment.domainMin)
+  const nx = (x - segment.domainMin) / domainSpan
+  const px = segment.startX + nx * segment.width
+  const py = type === 'painting' ? axisY.value - density * scale : axisY.value + density * scale
+
+  return {
+    x: px,
+    y: py
+  }
+}
+
+function resolveImageUrl(path: string) {
+  if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
+
+  const base = props.searchApiBase.replace(/\/$/, '')
+  let normalized = path.replace(/\\/g, '/')
+
+  const dataIdx = normalized.indexOf('/data/')
+  if (dataIdx >= 0) {
+    normalized = normalized.slice(dataIdx)
+  } else if (normalized.startsWith('./data/')) {
+    normalized = normalized.slice(1)
+  } else if (normalized.startsWith('data/')) {
+    normalized = `/${normalized}`
+  } else if (normalized.startsWith('./')) {
+    normalized = normalized.slice(1)
+  } else if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`
+  }
+
+  const encodedPath = normalized
+    .split('/')
+    .map((segment, idx) => (idx === 0 ? segment : encodeURIComponent(segment)))
+    .join('/')
+
+  return `${base}${encodedPath}`
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function getLayerSpeciesResult(layerKey: string, species: string) {
@@ -389,6 +492,28 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
 
               <line class="baseline" :x1="0" :x2="chartLayout.width" :y1="axisY" :y2="axisY" />
             </svg>
+
+            <div class="representative-layer">
+              <template v-for="badge in representativeBadges" :key="`badge-${badge.species}`">
+                <div
+                  v-if="badge.paintingUrl"
+                  class="representative-badge representative-badge-painting"
+                  :style="{ left: `${badge.paintingX}px`, top: `${badge.paintingY}px` }"
+                  :title="`${badge.species} painting`"
+                >
+                  <img :src="badge.paintingUrl" :alt="`${badge.species} painting`" loading="lazy" decoding="async" />
+                </div>
+
+                <div
+                  v-if="badge.photoUrl"
+                  class="representative-badge representative-badge-photo"
+                  :style="{ left: `${badge.photoX}px`, top: `${badge.photoY}px` }"
+                  :title="`${badge.species} photo`"
+                >
+                  <img :src="badge.photoUrl" :alt="`${badge.species} photo`" loading="lazy" decoding="async" />
+                </div>
+              </template>
+            </div>
 
             <div class="species-labels">
               <span
@@ -565,9 +690,41 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 18px;
+  bottom: 12px;
   height: 20px;
   pointer-events: none;
+}
+
+.representative-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.representative-badge {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 6px rgba(24, 32, 28, 0.28);
+  background: #ffffff;
+}
+
+.representative-badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.representative-badge-painting {
+  outline: 1px solid rgba(215, 123, 136, 0.55);
+}
+
+.representative-badge-photo {
+  outline: 1px solid rgba(97, 126, 185, 0.5);
 }
 
 .ridge-loading-overlay {
