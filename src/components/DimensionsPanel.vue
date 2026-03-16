@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { toDisplaySpeciesName } from '../constants/speciesMapping'
 
 interface Props {
   title?: string
   speciesList?: string[]
   searchApiBase?: string
+  layoutMode?: 'overlay' | 'stacked'
 }
 
 interface DensityResult {
@@ -35,12 +37,43 @@ interface SegmentLayout {
   domainMax: number
 }
 
+interface PaintingMeta {
+  id?: string
+  title?: string
+  original_title?: string
+  author?: string
+  age?: string
+  image_path?: string
+}
+
+interface HoverPreviewState {
+  type: 'painting' | 'photo'
+  imageUrl: string
+  species: string
+  meta: PaintingMeta | null
+}
+
+interface RepresentativeBadge {
+  species: string
+  paintingPath: string
+  photoPath: string
+  paintingUrl: string
+  photoUrl: string
+  paintingX: number
+  paintingY: number
+  photoX: number
+  photoY: number
+}
+
 const props = withDefaults(defineProps<Props>(), {
   title: 'Dimensions',
   speciesList: () => [],
+  layoutMode: 'overlay',
   searchApiBase:
     typeof window !== 'undefined' ? `http://${window.location.hostname}:8001` : 'http://127.0.0.1:8001'
 })
+
+const Chinese_Mode = true
 
 const dynastyGroups: DynastyGroup[] = [
   { key: 'tang_wudai', label: '唐/五代十国', ages: ['唐', '五代十国'], color: '#f08fa2' },
@@ -57,6 +90,9 @@ const errorText = ref('')
 const allLayerResults = ref<DensityResult[]>([])
 const dynastyLayerResults = ref<Record<string, DensityResult[]>>({})
 const requestSerial = ref(0)
+const paintingMetaMap = ref<Record<string, PaintingMeta>>({})
+const hoveredPreview = ref<HoverPreviewState | null>(null)
+const hoverPreviewPos = ref({ x: 16, y: 16 })
 
 const chartViewportRef = ref<HTMLDivElement | null>(null)
 const viewportWidth = ref(980)
@@ -198,16 +234,15 @@ const densityScale = computed(() => {
   }
 })
 
-const representativeBadges = computed(() => {
-  const badges: Array<{
-    species: string
-    paintingUrl: string
-    photoUrl: string
-    paintingX: number
-    paintingY: number
-    photoX: number
-    photoY: number
-  }> = []
+const dynastyOverlayScale = computed(() => {
+  if (!activeDynastyGroups.value.length) {
+    return 1
+  }
+  return 2
+})
+
+const representativeBadges = computed<RepresentativeBadge[]>(() => {
+  const badges: RepresentativeBadge[] = []
 
   for (const segment of chartLayout.value.segments) {
     const result = getLayerSpeciesResult('all', segment.species)
@@ -218,6 +253,8 @@ const representativeBadges = computed(() => {
 
     badges.push({
       species: segment.species,
+      paintingPath: result.representative_painting,
+      photoPath: result.representative_photo,
       paintingUrl: resolveImageUrl(result.representative_painting),
       photoUrl: resolveImageUrl(result.representative_photo),
       paintingX: paintingPeak.x,
@@ -239,6 +276,7 @@ watch(
 )
 
 onMounted(() => {
+  void loadPaintingMeta()
   updateViewportWidth()
   if (chartViewportRef.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -249,11 +287,33 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  hoveredPreview.value = null
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
   }
 })
+
+async function loadPaintingMeta() {
+  try {
+    const response = await fetch(`${props.searchApiBase}/data/bird_painting_metadata.json`)
+    if (!response.ok) {
+      return
+    }
+    const data = (await response.json()) as PaintingMeta[]
+    const nextMap: Record<string, PaintingMeta> = {}
+    for (const item of data) {
+      const imagePath = String(item.image_path ?? '').trim()
+      if (!imagePath) continue
+      const key = normalizePaintingMetaKey(imagePath)
+      if (!key) continue
+      nextMap[key] = item
+    }
+    paintingMetaMap.value = nextMap
+  } catch {
+    paintingMetaMap.value = {}
+  }
+}
 
 function updateViewportWidth() {
   const width = chartViewportRef.value?.clientWidth ?? 0
@@ -330,7 +390,12 @@ async function fetchLayerResults(classMethod: Record<string, unknown>) {
   return (await response.json()) as DensityResult[]
 }
 
-function ridgePath(item: DensityResult, segment: SegmentLayout, type: 'photo' | 'painting') {
+function ridgePath(
+  item: DensityResult,
+  segment: SegmentLayout,
+  type: 'photo' | 'painting',
+  extraScale = 1
+) {
   const yVals = type === 'photo' ? item.photo_density : item.painting_density
   const xVals = item.x_axis
   if (!xVals.length || xVals.length !== yVals.length) {
@@ -344,7 +409,10 @@ function ridgePath(item: DensityResult, segment: SegmentLayout, type: 'photo' | 
     const density = yVals[index] ?? 0
     const nx = clamp((x - segment.domainMin) / domainSpan, 0, 1)
     const px = segment.startX + nx * segment.width
-    const py = type === 'painting' ? axisY.value - density * scale : axisY.value + density * scale
+    const py =
+      type === 'painting'
+        ? axisY.value - density * scale * extraScale
+        : axisY.value + density * scale
     return `${px.toFixed(2)},${py.toFixed(2)}`
   })
 
@@ -352,6 +420,71 @@ function ridgePath(item: DensityResult, segment: SegmentLayout, type: 'photo' | 
   const endX = (segment.startX + segment.width).toFixed(2)
   const baseline = axisY.value.toFixed(2)
   return `M ${startX} ${baseline} L ${points.join(' L ')} L ${endX} ${baseline} Z`
+}
+
+function sampleDensityAtX(item: DensityResult, type: 'photo' | 'painting', x: number) {
+  const xVals = item.x_axis
+  const yVals = type === 'photo' ? item.photo_density : item.painting_density
+  if (!xVals.length || xVals.length !== yVals.length) return 0
+
+  const firstX = xVals[0] ?? 0
+  const lastX = xVals[xVals.length - 1] ?? 0
+  if (x < firstX || x > lastX) return 0
+
+  let lo = 0
+  let hi = xVals.length - 1
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1
+    const mv = xVals[mid] ?? 0
+    if (mv <= x) lo = mid
+    else hi = mid
+  }
+
+  const x0 = xVals[lo] ?? x
+  const x1 = xVals[hi] ?? x
+  const y0 = yVals[lo] ?? 0
+  const y1 = yVals[hi] ?? y0
+  if (Math.abs(x1 - x0) < 1e-9) return y0
+  const t = (x - x0) / (x1 - x0)
+  return y0 + (y1 - y0) * t
+}
+
+function stackedRidgePath(segment: SegmentLayout, layerKey: string) {
+  const layerIdx = activeDynastyGroups.value.findIndex((group) => group.key === layerKey)
+  if (layerIdx < 0) return ''
+
+  const current = getLayerSpeciesResult(layerKey, segment.species)
+  if (!current) return ''
+
+  const sampleCount = 201
+  const pointsTop: string[] = []
+  const pointsBottom: string[] = []
+  const span = Math.max(1e-6, segment.domainMax - segment.domainMin)
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / Math.max(1, sampleCount - 1)
+    const xDomain = segment.domainMin + span * t
+    const px = segment.startX + segment.width * t
+
+    let cumDensity = 0
+    for (let j = 0; j < layerIdx; j += 1) {
+      const prevKey = activeDynastyGroups.value[j]?.key
+      if (!prevKey) continue
+      const prev = getLayerSpeciesResult(prevKey, segment.species)
+      if (!prev) continue
+      cumDensity += sampleDensityAtX(prev, 'painting', xDomain)
+    }
+
+    const currDensity = sampleDensityAtX(current, 'painting', xDomain)
+    const yBottom = axisY.value - cumDensity * densityScale.value.paintScale
+    const yTop = axisY.value - (cumDensity + currDensity) * densityScale.value.paintScale
+
+    pointsTop.push(`${px.toFixed(2)},${yTop.toFixed(2)}`)
+    pointsBottom.push(`${px.toFixed(2)},${yBottom.toFixed(2)}`)
+  }
+
+  if (!pointsTop.length) return ''
+  return `M ${pointsBottom[0]} L ${pointsTop.join(' L ')} L ${pointsBottom.reverse().join(' L ')} Z`
 }
 
 function getPeakAnchor(item: DensityResult, segment: SegmentLayout, type: 'photo' | 'painting') {
@@ -416,8 +549,87 @@ function resolveImageUrl(path: string) {
   return `${base}${encodedPath}`
 }
 
+function normalizePaintingMetaKey(path: string) {
+  let normalized = path.replace(/\\/g, '/').trim()
+  if (!normalized) return ''
+
+  const downloadedIdx = normalized.indexOf('/downloaded_paintings/')
+  if (downloadedIdx >= 0) {
+    normalized = normalized.slice(downloadedIdx + '/downloaded_paintings/'.length)
+  }
+
+  if (normalized.startsWith('./')) {
+    normalized = normalized.slice(2)
+  }
+  if (normalized.startsWith('/')) {
+    normalized = normalized.slice(1)
+  }
+  if (normalized.startsWith('data/')) {
+    normalized = normalized.slice('data/'.length)
+  }
+  if (normalized.startsWith('downloaded_paintings/')) {
+    normalized = normalized.slice('downloaded_paintings/'.length)
+  }
+  return normalized
+}
+
+function findPaintingMeta(path: string): PaintingMeta | null {
+  const key = normalizePaintingMetaKey(path)
+  if (!key) return null
+  return paintingMetaMap.value[key] ?? null
+}
+
+function updateHoverPreviewPosition(event: MouseEvent) {
+  const cardWidth = 250
+  const cardHeight = 240
+  const offset = 24
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+
+  // 使用视口级 fixed 定位，避免被图表/面板的 overflow 裁切。
+  let x = event.clientX - cardWidth - offset
+  let y = event.clientY - cardHeight - offset
+
+  x = clamp(x, 8, Math.max(8, vw - cardWidth - 8))
+  y = clamp(y, 8, Math.max(8, vh - cardHeight - 8))
+  hoverPreviewPos.value = { x, y }
+}
+
+function onBadgeEnter(badge: RepresentativeBadge, type: 'painting' | 'photo', event: MouseEvent) {
+  updateHoverPreviewPosition(event)
+  if (type === 'painting') {
+    hoveredPreview.value = {
+      type,
+      imageUrl: badge.paintingUrl,
+      species: badge.species,
+      meta: findPaintingMeta(badge.paintingPath)
+    }
+    return
+  }
+
+  hoveredPreview.value = {
+    type,
+    imageUrl: badge.photoUrl,
+    species: badge.species,
+    meta: null
+  }
+}
+
+function onBadgeMove(event: MouseEvent) {
+  if (!hoveredPreview.value) return
+  updateHoverPreviewPosition(event)
+}
+
+function onBadgeLeave() {
+  hoveredPreview.value = null
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
+}
+
+function displaySpeciesName(species: string) {
+  return toDisplaySpeciesName(species, Chinese_Mode)
 }
 
 function getLayerSpeciesResult(layerKey: string, species: string) {
@@ -482,17 +694,34 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
                 </template>
               </g>
 
-              <template v-for="layer in displayLayers.filter((item) => !item.isAll)" :key="layer.key">
-                <g>
-                  <template v-for="segment in chartLayout.segments" :key="`${layer.key}-${segment.species}`">
-                    <path
-                      v-if="getLayerSpeciesResult(layer.key, segment.species)"
-                      class="ridge"
-                      :style="{ fill: layer.color }"
-                      :d="ridgePath(getLayerSpeciesResult(layer.key, segment.species)!, segment, 'painting')"
-                    />
-                  </template>
-                </g>
+              <template v-if="props.layoutMode === 'overlay'">
+                <template v-for="layer in displayLayers.filter((item) => !item.isAll)" :key="layer.key">
+                  <g>
+                    <template v-for="segment in chartLayout.segments" :key="`${layer.key}-${segment.species}`">
+                      <path
+                        v-if="getLayerSpeciesResult(layer.key, segment.species)"
+                        class="ridge"
+                        :style="{ fill: layer.color }"
+                        :d="ridgePath(getLayerSpeciesResult(layer.key, segment.species)!, segment, 'painting', dynastyOverlayScale)"
+                      />
+                    </template>
+                  </g>
+                </template>
+              </template>
+
+              <template v-else>
+                <template v-for="group in activeDynastyGroups" :key="group.key">
+                  <g>
+                    <template v-for="segment in chartLayout.segments" :key="`stack-${group.key}-${segment.species}`">
+                      <path
+                        v-if="getLayerSpeciesResult(group.key, segment.species)"
+                        class="ridge"
+                        :style="{ fill: group.color }"
+                        :d="stackedRidgePath(segment, group.key)"
+                      />
+                    </template>
+                  </g>
+                </template>
               </template>
 
               <line class="baseline" :x1="0" :x2="chartLayout.width" :y1="axisY" :y2="axisY" />
@@ -504,18 +733,24 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
                   v-if="badge.paintingUrl"
                   class="representative-badge representative-badge-painting"
                   :style="{ left: `${badge.paintingX}px`, top: `${badge.paintingY}px` }"
-                  :title="`${badge.species} painting`"
+                  :title="`${displaySpeciesName(badge.species)} painting`"
+                  @mouseenter="onBadgeEnter(badge, 'painting', $event)"
+                  @mousemove="onBadgeMove($event)"
+                  @mouseleave="onBadgeLeave"
                 >
-                  <img :src="badge.paintingUrl" :alt="`${badge.species} painting`" loading="lazy" decoding="async" />
+                  <img :src="badge.paintingUrl" :alt="`${displaySpeciesName(badge.species)} painting`" loading="lazy" decoding="async" />
                 </div>
 
                 <div
                   v-if="badge.photoUrl"
                   class="representative-badge representative-badge-photo"
                   :style="{ left: `${badge.photoX}px`, top: `${badge.photoY}px` }"
-                  :title="`${badge.species} photo`"
+                  :title="`${displaySpeciesName(badge.species)} photo`"
+                  @mouseenter="onBadgeEnter(badge, 'photo', $event)"
+                  @mousemove="onBadgeMove($event)"
+                  @mouseleave="onBadgeLeave"
                 >
-                  <img :src="badge.photoUrl" :alt="`${badge.species} photo`" loading="lazy" decoding="async" />
+                  <img :src="badge.photoUrl" :alt="`${displaySpeciesName(badge.species)} photo`" loading="lazy" decoding="async" />
                 </div>
               </template>
             </div>
@@ -527,8 +762,32 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
                 class="species-label"
                 :style="{ left: `${segment.startX + segment.width / 2}px` }"
               >
-                {{ segment.species }}
+                {{ displaySpeciesName(segment.species) }}
               </span>
+            </div>
+          </div>
+
+          <div
+            v-if="hoveredPreview"
+            class="hover-preview-card"
+            :style="{ left: `${hoverPreviewPos.x}px`, top: `${hoverPreviewPos.y}px` }"
+          >
+            <div class="hover-preview-image-wrap">
+              <img :src="hoveredPreview.imageUrl" :alt="displaySpeciesName(hoveredPreview.species)" class="hover-preview-image" />
+            </div>
+            <div class="hover-preview-meta">
+              <div class="hover-preview-species">{{ displaySpeciesName(hoveredPreview.species) }}</div>
+              <template v-if="hoveredPreview.type === 'painting' && hoveredPreview.meta">
+                <div class="hover-preview-line">画作：{{ hoveredPreview.meta.title || hoveredPreview.meta.original_title || '未知' }}</div>
+                <div class="hover-preview-line">朝代：{{ hoveredPreview.meta.age || '未知' }}</div>
+                <div class="hover-preview-line">作者：{{ hoveredPreview.meta.author || '未知' }}</div>
+              </template>
+              <template v-else-if="hoveredPreview.type === 'painting'">
+                <div class="hover-preview-line">画作元信息缺失</div>
+              </template>
+              <template v-else>
+                <div class="hover-preview-line">类型：摄影参考图</div>
+              </template>
             </div>
           </div>
         </div>
@@ -716,6 +975,8 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
   border: 1px solid rgba(255, 255, 255, 0.92);
   box-shadow: 0 2px 6px rgba(24, 32, 28, 0.28);
   background: #ffffff;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .representative-badge img {
@@ -730,6 +991,51 @@ function getLayerSpeciesResult(layerKey: string, species: string) {
 
 .representative-badge-photo {
   outline: 1px solid rgba(97, 126, 185, 0.5);
+}
+
+.hover-preview-card {
+  position: fixed;
+  width: 250px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(216, 223, 214, 0.9);
+  box-shadow: 0 10px 24px rgba(29, 40, 36, 0.2);
+  padding: 8px;
+  z-index: 1200;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.hover-preview-image-wrap {
+  width: 100%;
+  height: 148px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f3f6f2;
+}
+
+.hover-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.hover-preview-meta {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hover-preview-species {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3f5048;
+}
+
+.hover-preview-line {
+  font-size: 12px;
+  color: #5f6d66;
 }
 
 .ridge-loading-overlay {

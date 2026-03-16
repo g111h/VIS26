@@ -1,0 +1,85 @@
+export const SPECIES_CN_MAP: Record<string, string> = {
+  'Acridotheres cristatellus': '八哥 Crested Myna',
+  'Aethopyga gouldiae': "蓝喉太阳鸟 Mrs. Gould's Sunbird",
+  'Aix galericulata': '鸳鸯 Mandarin Duck',
+  'Alcedo atthis': '普通翠鸟 Common Kingfisher',
+  'Anas crecca': '绿翅鸭 Eurasian Teal',
+  'Anas platyrhynchos': '绿头鸭 Mallard',
+  'Anser albifrons': '白额雁 Greater White-fronted Goose',
+  'Anser cygnoides': '鸿雁 Swan Goose',
+  'Anser fabalis': '豆雁 Bean Goose',
+  'Aquila chrysaetos': '金雕 Golden Eagle',
+  'Astur gentilis': '苍鹰 Northern Goshawk',
+  'Bombycilla japonica': '小太平鸟 Japanese Waxwing',
+  'Cecropis daurica': '金腰燕 Red-rumped Swallow',
+  'Chloris sinica': '金翅雀 Oriental Greenfinch',
+  'Chloropsis hardwickii': '橙腹叶鹎 Orange-bellied Leafbird',
+  'Chrysolophus amherstiae': "白腹锦鸡 Lady Amherst's Pheasant",
+  'Chrysolophus pictus': '红腹锦鸡 Golden Pheasant',
+  'Copsychus saularis': '鹊鸲 Oriental Magpie-Robin',
+  'Corvus dauuricus': '达乌里寒鸦 Daurian Jackdaw',
+  'Coturnix japonica': '鹌鹑 Japanese Quail',
+  'Cyanopica cyanus': '灰喜鹊 Azure-winged Magpie',
+  'Cygnus cygnus': '大天鹅 Whooper Swan',
+  'Egretta garzetta': '白鹭 Little Egret',
+  'Emberiza aureola': '黄胸鹀 Yellow-breasted Bunting',
+  'Eophona personata': '黑头蜡嘴雀 Japanese Grosbeak',
+  'Eremophila alpestris': '角百灵 Horned Lark',
+  'Ficedula narcissina': '黄眉姬鹟 Narcissus Flycatcher',
+  'Ficedula zanthopygia': '白眉姬鹟 Yellow-rumped Flycatcher',
+  'Galerida cristata': '凤头百灵 Crested Lark',
+  'Garrulax canorus': '画眉 Chinese Hwamei',
+  'Grus japonensis': '丹顶鹤 Red-crowned Crane',
+  'Hirundo rustica': '家燕 Barn Swallow',
+  'Lanius sphenocercus': '楔尾伯劳 Chinese Grey Shrike',
+  'Leiothrix lutea': '红嘴相思鸟 Red-billed Leiothrix',
+  'Lonchura punctulata': '斑文鸟 Scaly-breasted Munia',
+  'Lonchura striata': '白腰文鸟 White-rumped Munia',
+  'Motacilla alba': '白鹡鸰 White Wagtail',
+  'Motacilla cinerea': '灰鹡鸰 Grey Wagtail',
+  'Nisaetus nipalensis': '鹰雕 Mountain Hawk-Eagle',
+  'Oriolus chinensis': '黑枕黄鹂 Black-naped Oriole',
+  'Padda oryzivora': '禾雀 Java Sparrow',
+  'Pardaliparus venustulus': '黄腹山雀 Yellow-bellied Tit',
+  'Parus minor': '远东山雀 Japanese Tit',
+  'Passer cinnamomeus': '山麻雀 Russet Sparrow',
+  'Passer montanus': '麻雀 Tree Sparrow',
+  'Pavo muticus': '绿孔雀 Green Peafowl',
+  'Phasianus colchicus': '雉鸡 Common Pheasant',
+  'Phoenicurus auroreus': '北红尾鸲 Daurian Redstart',
+  'Pica pica': '喜鹊 Eurasian Magpie',
+  'Pterorhinus courtoisi': '蓝冠燥鹛 Blue-crowned Laughingthrush',
+  'Pycnonotus sinensis': '白头鹎 Light-vented Bulbul',
+  'Sibirionetta formosa': '花脸鸭 Baikal Teal',
+  'Spatula querquedula': '白眉鸭 Garganey',
+  'Spilopelia chinensis': '珠颈斑鸠 Spotted Dove',
+  'Spinus spinus': '黄雀 Eurasian Siskin',
+  'Spizixos semitorques': '领雀嘴鵯 Collared Finchbill',
+  'Spodiopsar cineraceus': '灰椋鸟 White-cheeked Starling',
+  'Spodiopsar sericeus': '丝光椋鸟 Red-billed Starling',
+  'Streptopelia orientalis': '山斑鸠 Oriental Turtle Dove',
+  'Suthora webbiana': '棕头鸦雀 Vinous-throated Parrotbill',
+  'Tadorna ferruginea': '赤麻鸭 Ruddy Shelduck',
+  'Terpsiphone incei': '寿带 Amur Paradise Flycatcher',
+  'Tragopan temminckii': "红腹角雉 Temminck's Tragopan",
+  'Treron sieboldii': '红翅绿鸠 White-bellied Green Pigeon',
+  'Trichoglossus ornatus': '华丽吸蜜鹦鹉 Ornate Lorikeet',
+  'Upupa epops': '戴胜 Eurasian Hoopoe',
+  'Urocissa erythroryncha': '红嘴蓝鹊 Red-billed Blue Magpie',
+  'Zosterops simplex': "暗绿绣眼鸟 Swinhoe's White-eye"
+}
+
+export function toDisplaySpeciesName(species: string, chineseMode: boolean): string {
+  if (!chineseMode) return species
+
+  if (SPECIES_CN_MAP[species]) {
+    return SPECIES_CN_MAP[species]
+  }
+
+  const normalized = species.replace(/_/g, ' ').trim()
+  if (SPECIES_CN_MAP[normalized]) {
+    return SPECIES_CN_MAP[normalized]
+  }
+
+  return normalized || species
+}

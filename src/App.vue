@@ -9,6 +9,7 @@ const savedMaskFile = ref<File | null>(null)
 const savedMaskPreview = ref('')
 const selectedSpeciesList = ref<string[]>([])
 const selectedPainting = ref<'furongjinjitu' | 'zhuquetu'>('furongjinjitu')
+const dimensionLayoutMode = ref<'overlay' | 'stacked'>('overlay')
 
 function handleMaskSaved(payload: { maskUrl: string; file: File }) {
   savedMaskFile.value = payload.file
@@ -25,6 +26,24 @@ function handleSpeciesChange(speciesList: string[]) {
     <TopBar>
       <template #action>
         <div class="painting-select-wrap">
+          <div class="layout-mode-switch" role="group" aria-label="dimension layout mode">
+            <button
+              class="layout-mode-btn"
+              :class="{ 'is-active': dimensionLayoutMode === 'overlay' }"
+              type="button"
+              @click="dimensionLayoutMode = 'overlay'"
+            >
+              重叠
+            </button>
+            <button
+              class="layout-mode-btn"
+              :class="{ 'is-active': dimensionLayoutMode === 'stacked' }"
+              type="button"
+              @click="dimensionLayoutMode = 'stacked'"
+            >
+              堆叠
+            </button>
+          </div>
           <select v-model="selectedPainting" class="painting-select" aria-label="选择画作">
             <option value="furongjinjitu">芙蓉锦鸡图</option>
             <option value="zhuquetu">竹雀图</option>
@@ -46,7 +65,7 @@ function handleSpeciesChange(speciesList: string[]) {
       />
     </main>
 
-    <DimensionsPanel :species-list="selectedSpeciesList" />
+    <DimensionsPanel :species-list="selectedSpeciesList" :layout-mode="dimensionLayoutMode" />
   </div>
 </template>
 
@@ -76,6 +95,32 @@ function handleSpeciesChange(speciesList: string[]) {
 .painting-select-wrap {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.layout-mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.layout-mode-btn {
+  border: none;
+  background: transparent;
+  color: #52635c;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.layout-mode-btn.is-active {
+  background: #3d4f4a;
+  color: #ffffff;
 }
 
 .painting-select {

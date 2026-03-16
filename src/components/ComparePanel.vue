@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uploadIconUrl from '../assets/上传图标.svg'
+import { toDisplaySpeciesName } from '../constants/speciesMapping'
 
 type WeightKey = 'structure' | 'color' | 'texture'
 
@@ -8,7 +9,7 @@ interface WeightItem {
   key: WeightKey
   label: string
   value: number
-  tone?: 'pink' | 'mint' | 'blue'
+  tone?: 'pink' | 'mint' | 'blue' | 'orange' | 'violet' | 'cyan'
 }
 
 interface SearchItem {
@@ -57,9 +58,9 @@ const props = withDefaults(defineProps<Props>(), {
   title: 'Compare',
   promptPlaceholder: 'Describe the style, palette, and mood',
   weights: () => [
-    { key: 'structure', label: 'Structure', value: 1, tone: 'mint' },
-    { key: 'color', label: 'Color', value: 0.3, tone: 'blue' },
-    { key: 'texture', label: 'Texture', value: 0.2, tone: 'pink' }
+    { key: 'structure', label: 'Structure', value: 1, tone: 'orange' },
+    { key: 'color', label: 'Color', value: 0.3, tone: 'violet' },
+    { key: 'texture', label: 'Texture', value: 0.2, tone: 'cyan' }
   ],
   referenceImage: '',
   galleryImages: () => [],
@@ -70,6 +71,8 @@ const props = withDefaults(defineProps<Props>(), {
   controlsTarget: '',
   searchFile: null
 })
+
+const Chinese_Mode = true
 
 const emit = defineEmits<{
   (e: 'species-change', speciesList: string[]): void
@@ -641,14 +644,11 @@ function isSpeciesHighlighted(item: SearchItem) {
 
 function onPreviewWheel(event: WheelEvent) {
   const factor = event.deltaY < 0 ? 1.1 : 0.9
-  imageScale.value = clamp(imageScale.value * factor, 1, 6)
-  if (imageScale.value <= 1.02) {
-    resetPreviewTransform()
-  }
+  imageScale.value = clamp(imageScale.value * factor, 0.35, 6)
 }
 
 function onPreviewMouseDown(event: MouseEvent) {
-  if (event.button !== 0 || imageScale.value <= 1) return
+  if (event.button !== 0 || imageScale.value === 1) return
   isImageDragging.value = true
   imageDragStartX = event.clientX
   imageDragStartY = event.clientY
@@ -667,14 +667,11 @@ function onPreviewMouseUp() {
 }
 
 function zoomInPreview() {
-  imageScale.value = clamp(imageScale.value * 1.2, 1, 6)
+  imageScale.value = clamp(imageScale.value * 1.2, 0.35, 6)
 }
 
 function zoomOutPreview() {
-  imageScale.value = clamp(imageScale.value / 1.2, 1, 6)
-  if (imageScale.value <= 1.02) {
-    resetPreviewTransform()
-  }
+  imageScale.value = clamp(imageScale.value / 1.2, 0.35, 6)
 }
 
 function resetPreviewTransform() {
@@ -702,7 +699,7 @@ async function runSearch() {
   formData.append('structure_w', String(getWeightValue('structure')))
   formData.append('color_w', String(getWeightValue('color')))
   formData.append('texture_w', String(getWeightValue('texture')))
-  formData.append('include_all_members', '1')
+  formData.append('include_all_members', '0')
   formData.append('members_per_species', String(SHADOW_POINTS_PER_SPECIES))
   formData.append('nearby_k', '20')
   formData.append('max_total', '3000')
@@ -860,6 +857,38 @@ function resolveImageUrl(path: string) {
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
+
+function displaySpeciesName(species: string) {
+  return toDisplaySpeciesName(species, Chinese_Mode)
+}
+
+function toneColor(weight: WeightItem) {
+  switch (weight.tone) {
+    case 'orange':
+      return '#d88a2e'
+    case 'violet':
+      return '#6a67dc'
+    case 'cyan':
+      return '#31d6be'
+    case 'mint':
+      return 'var(--accent-mint)'
+    case 'blue':
+      return 'var(--accent-blue)'
+    case 'pink':
+      return 'var(--accent-pink)'
+    default:
+      return '#6a67dc'
+  }
+}
+
+function sliderTrackStyle(weight: WeightItem) {
+  const pct = (clamp(weight.value, 0, 1) * 100).toFixed(2)
+  return {
+    '--slider-color': toneColor(weight),
+    '--slider-pct': `${pct}%`,
+    '--track-fill': `linear-gradient(90deg, var(--slider-color) 0%, var(--slider-color) var(--slider-pct), #ffffff var(--slider-pct), #ffffff 100%)`
+  }
+}
 </script>
 
 <template>
@@ -901,10 +930,11 @@ function clamp(value: number, min: number, max: number) {
                   :key="weight.key"
                   class="weight-row"
                 >
-                  <span>{{ weight.label }}</span>
+                  <span :class="['weight-label', `weight-label-${weight.key}`]">{{ weight.label }}</span>
                   <input
                     v-model.number="weight.value"
                     :class="['weight-slider', `tone-${weight.tone ?? 'mint'}`]"
+                    :style="sliderTrackStyle(weight)"
                     type="range"
                     min="0"
                     max="1"
@@ -967,10 +997,11 @@ function clamp(value: number, min: number, max: number) {
                   :key="weight.key"
                   class="weight-row"
                 >
-                  <span>{{ weight.label }}</span>
+                  <span :class="['weight-label', `weight-label-${weight.key}`]">{{ weight.label }}</span>
                   <input
                     v-model.number="weight.value"
                     :class="['weight-slider', `tone-${weight.tone ?? 'mint'}`]"
+                    :style="sliderTrackStyle(weight)"
                     type="range"
                     min="0"
                     max="1"
@@ -1043,7 +1074,7 @@ function clamp(value: number, min: number, max: number) {
                 @mouseenter="onShadowEnter(point.raw)"
                 @mouseleave="onShadowLeave"
                 @click="onShadowClick(point.raw)"
-                :aria-label="point.raw.label"
+                :aria-label="displaySpeciesName(point.raw.label)"
               >
                 <span class="shadow-dot"></span>
               </button>
@@ -1116,7 +1147,7 @@ function clamp(value: number, min: number, max: number) {
                 </svg>
                 <img
                   :src="node.imageUrl"
-                  :alt="node.raw.label"
+                  :alt="displaySpeciesName(node.raw.label)"
                   loading="lazy"
                   decoding="async"
                 />
@@ -1124,7 +1155,6 @@ function clamp(value: number, min: number, max: number) {
             </div>
 
             <div v-if="pinnedItem" class="pin-tip">
-              已固定: {{ pinnedItem.label }}
               <button type="button" class="pin-clear" @click="clearPinnedPreview">取消固定</button>
             </div>
           </div>
@@ -1169,7 +1199,7 @@ function clamp(value: number, min: number, max: number) {
               </div>
             </div>
             <div v-if="activePreviewItem" class="image-meta">
-              {{ activePreviewItem.label }} · 相似度 {{ activePreviewItem.score.toFixed(4) }}
+              {{ displaySpeciesName(activePreviewItem.label) }} · 相似度 {{ activePreviewItem.score.toFixed(4) }}
             </div>
           </slot>
         </div>
@@ -1392,6 +1422,52 @@ function clamp(value: number, min: number, max: number) {
 
 .weight-slider {
   width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  color-scheme: light;
+}
+
+.weight-slider::-webkit-slider-runnable-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--track-fill);
+  border: 1px solid #d7ded4;
+}
+
+.weight-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid #ffffff;
+  margin-top: -4px;
+  box-shadow: 0 0 0 1px rgba(33, 44, 40, 0.18);
+  background: var(--slider-color);
+}
+
+.weight-slider::-moz-range-track {
+  height: 7px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #d7ded4;
+}
+
+.weight-slider::-moz-range-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--slider-color);
+  border: 1px solid #d7ded4;
+}
+
+.weight-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(33, 44, 40, 0.18);
+  background: var(--slider-color);
 }
 
 .weight-slider.tone-mint {
@@ -1406,10 +1482,38 @@ function clamp(value: number, min: number, max: number) {
   accent-color: var(--accent-pink);
 }
 
+.weight-slider.tone-orange {
+  accent-color: #d88a2e;
+}
+
+.weight-slider.tone-violet {
+  accent-color: #6a67dc;
+}
+
+.weight-slider.tone-cyan {
+  accent-color: #31d6be;
+}
+
 .weight-value {
   color: #6d7b73;
   font-weight: 600;
   text-align: right;
+}
+
+.weight-label {
+  font-weight: 600;
+}
+
+.weight-label-structure {
+  color: #d88a2e;
+}
+
+.weight-label-color {
+  color: #6a67dc;
+}
+
+.weight-label-texture {
+  color: #31d6be;
 }
 
 .orbit {
@@ -1614,17 +1718,20 @@ function clamp(value: number, min: number, max: number) {
 
 .pin-tip {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--panel-border);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   font-size: 12px;
   color: #4b5953;
+  z-index: 9;
+  box-shadow: 0 2px 10px rgba(31, 46, 41, 0.12);
 }
 
 .pin-clear {
@@ -1701,7 +1808,7 @@ function clamp(value: number, min: number, max: number) {
 .hero-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   image-rendering: auto;
   transform-origin: 50% 50%;
 }
