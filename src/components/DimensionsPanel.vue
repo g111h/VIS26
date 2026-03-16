@@ -7,6 +7,7 @@ interface Props {
   speciesList?: string[]
   searchApiBase?: string
   layoutMode?: 'overlay' | 'stacked'
+  dataset?: 'bird' | 'flower'
 }
 
 interface DensityResult {
@@ -69,6 +70,7 @@ const props = withDefaults(defineProps<Props>(), {
   title: 'Dimensions',
   speciesList: () => [],
   layoutMode: 'overlay',
+  dataset: 'bird',
   searchApiBase:
     typeof window !== 'undefined' ? `http://${window.location.hostname}:8001` : 'http://127.0.0.1:8001'
 })
@@ -268,11 +270,18 @@ const representativeBadges = computed<RepresentativeBadge[]>(() => {
 })
 
 watch(
-  () => [sortedSpeciesList.value.join('|'), selectedDynasties.value.join('|')],
+  () => [sortedSpeciesList.value.join('|'), selectedDynasties.value.join('|'), props.dataset],
   () => {
     void refreshData()
   },
   { immediate: true }
+)
+
+watch(
+  () => props.dataset,
+  () => {
+    void loadPaintingMeta()
+  }
 )
 
 onMounted(() => {
@@ -295,8 +304,9 @@ onBeforeUnmount(() => {
 })
 
 async function loadPaintingMeta() {
+  const metadataFile = props.dataset === 'flower' ? 'flower_painting_metadata.json' : 'bird_painting_metadata.json'
   try {
-    const response = await fetch(`${props.searchApiBase}/data/bird_painting_metadata.json`)
+    const response = await fetch(`${props.searchApiBase}/data/${metadataFile}`)
     if (!response.ok) {
       return
     }
@@ -374,6 +384,7 @@ async function fetchLayerResults(classMethod: Record<string, unknown>) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      dataset: props.dataset,
       species_list: sortedSpeciesList.value,
       threshold: 0.5,
       class_method: classMethod,
@@ -553,6 +564,11 @@ function normalizePaintingMetaKey(path: string) {
   let normalized = path.replace(/\\/g, '/').trim()
   if (!normalized) return ''
 
+  const downloadedFlowerIdx = normalized.indexOf('/downloaded_paintings-flower/')
+  if (downloadedFlowerIdx >= 0) {
+    normalized = normalized.slice(downloadedFlowerIdx + '/downloaded_paintings-flower/'.length)
+  }
+
   const downloadedIdx = normalized.indexOf('/downloaded_paintings/')
   if (downloadedIdx >= 0) {
     normalized = normalized.slice(downloadedIdx + '/downloaded_paintings/'.length)
@@ -569,6 +585,9 @@ function normalizePaintingMetaKey(path: string) {
   }
   if (normalized.startsWith('downloaded_paintings/')) {
     normalized = normalized.slice('downloaded_paintings/'.length)
+  }
+  if (normalized.startsWith('downloaded_paintings-flower/')) {
+    normalized = normalized.slice('downloaded_paintings-flower/'.length)
   }
   return normalized
 }

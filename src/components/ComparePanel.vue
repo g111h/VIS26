@@ -52,6 +52,7 @@ interface Props {
   promptApiBase?: string
   controlsTarget?: string
   searchFile?: File | null
+  dataset?: 'bird' | 'flower'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -69,7 +70,8 @@ const props = withDefaults(defineProps<Props>(), {
   promptApiBase:
     typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000',
   controlsTarget: '',
-  searchFile: null
+  searchFile: null,
+  dataset: 'bird'
 })
 
 const Chinese_Mode = true
@@ -703,6 +705,7 @@ async function runSearch() {
   formData.append('members_per_species', String(SHADOW_POINTS_PER_SPECIES))
   formData.append('nearby_k', '20')
   formData.append('max_total', '3000')
+  formData.append('dataset', props.dataset)
 
   try {
     console.log('Sending search request with weights:', {

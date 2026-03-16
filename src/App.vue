@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ComparePanel from './components/ComparePanel.vue'
 import DimensionsPanel from './components/DimensionsPanel.vue'
 import ImageEditorPanel from './components/ImageEditorPanel.vue'
@@ -8,8 +8,19 @@ import TopBar from './components/TopBar.vue'
 const savedMaskFile = ref<File | null>(null)
 const savedMaskPreview = ref('')
 const selectedSpeciesList = ref<string[]>([])
-const selectedPainting = ref<'furongjinjitu' | 'zhuquetu'>('furongjinjitu')
+const selectedPainting = ref<'furongjinjitu' | 'zhuquetu' | 'meimotu'>('furongjinjitu')
 const dimensionLayoutMode = ref<'overlay' | 'stacked'>('overlay')
+const datasetMode = computed<'bird' | 'flower'>(() =>
+  selectedPainting.value === 'meimotu' ? 'flower' : 'bird'
+)
+
+watch(datasetMode, (next, prev) => {
+  if (next === prev) return
+  // 切换数据域后清空旧选择，避免 bird/flower 结果混用。
+  selectedSpeciesList.value = []
+  savedMaskFile.value = null
+  savedMaskPreview.value = ''
+})
 
 function handleMaskSaved(payload: { maskUrl: string; file: File }) {
   savedMaskFile.value = payload.file
@@ -47,6 +58,7 @@ function handleSpeciesChange(speciesList: string[]) {
           <select v-model="selectedPainting" class="painting-select" aria-label="选择画作">
             <option value="furongjinjitu">芙蓉锦鸡图</option>
             <option value="zhuquetu">竹雀图</option>
+            <option value="meimotu">梅墨图</option>
           </select>
         </div>
       </template>
@@ -60,12 +72,13 @@ function handleSpeciesChange(speciesList: string[]) {
       <ComparePanel
         :search-file="savedMaskFile"
         :reference-image="savedMaskPreview"
+        :dataset="datasetMode"
         controls-target="#compare-controls-host"
         @species-change="handleSpeciesChange"
       />
     </main>
 
-    <DimensionsPanel :species-list="selectedSpeciesList" :layout-mode="dimensionLayoutMode" />
+    <DimensionsPanel :species-list="selectedSpeciesList" :layout-mode="dimensionLayoutMode" :dataset="datasetMode" />
   </div>
 </template>
 
