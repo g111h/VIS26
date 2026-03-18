@@ -2,6 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uploadIconUrl from '../assets/上传图标.svg'
 import { toDisplaySpeciesName } from '../constants/speciesMapping'
+import jinjiSamImage from '../assets/sam_hardcode/jinji_sam.jpg'
+import zhuqueSamImage from '../assets/sam_hardcode/xiaotaipingniao_sam.jpg'
+// import shanchaSamImage from '../assets/sam_hardcode/shancha_sam.jpg'
+import momeiSamImage from '../assets/sam_hardcode/momei_sam.png'
 
 type WeightKey = 'structure' | 'color' | 'texture'
 
@@ -19,6 +23,9 @@ interface SearchItem {
   score: number
   radius: number
   angle: number
+  score_structure?: number 
+  score_color?: number
+  score_texture?: number
 }
 
 interface OrbitPoint {
@@ -34,6 +41,9 @@ interface RepresentativeNode {
   y: number
   raw: SearchItem
   imageUrl: string
+  score_structure?: number
+  score_color?: number
+  score_texture?: number
 }
 
 interface GalleryItem {
@@ -53,6 +63,7 @@ interface Props {
   controlsTarget?: string
   searchFile?: File | null
   dataset?: 'bird' | 'flower'
+  selectedPainting?: 'furongjinjitu' | 'zhuquetu' | 'meimotu' | 'shanchajixuetu'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -71,7 +82,8 @@ const props = withDefaults(defineProps<Props>(), {
     typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://127.0.0.1:8000',
   controlsTarget: '',
   searchFile: null,
-  dataset: 'bird'
+  dataset: 'bird',
+  selectedPainting: 'furongjinjitu'
 })
 
 const Chinese_Mode = true
@@ -245,7 +257,10 @@ function buildTieredRepresentativeTargets(items: SearchItem[]): RepresentativeNo
         item,
         baseAngle: angle,
         baseRadius: radius,
-        imageUrl: resolveImageUrl(item.path)
+        imageUrl: resolveImageUrl(item.path),
+        score_structure: item.score_structure,
+        score_color: item.score_color,
+        score_texture: item.score_texture
       }
     })
     .sort((a, b) => a.baseRadius - b.baseRadius)
@@ -267,7 +282,7 @@ function buildTieredRepresentativeTargets(items: SearchItem[]): RepresentativeNo
 }
 
 function layoutRing(
-  ringItems: Array<{ item: SearchItem; baseAngle: number; imageUrl: string }>,
+  ringItems: Array<{ item: SearchItem; baseAngle: number; imageUrl: string; score_structure?: number; score_color?: number; score_texture?: number }>,
   radiusRange: [number, number]
 ): RepresentativeNode[] {
   if (!ringItems.length) return []
@@ -291,7 +306,10 @@ function layoutRing(
       x: point.x,
       y: point.y,
       raw: entry.item,
-      imageUrl: entry.imageUrl
+      imageUrl: entry.imageUrl,
+      score_structure: entry.score_structure,
+      score_color: entry.score_color,
+      score_texture: entry.score_texture
     }
   })
 }
@@ -352,11 +370,22 @@ const displayImageUrl = computed(() => {
 
 const galleryResultImages = computed<GalleryItem[]>(() => galleryUploads.value)
 
-const arcStroke = computed(() => ({
-  structure: String(getWeightValue('structure')),
-  color: String(getWeightValue('color')),
-  texture: String(getWeightValue('texture'))
-}))
+// const arcStroke = computed(() => ({
+//   structure: String(getWeightValue('structure')),
+//   color: String(getWeightValue('color')),
+//   texture: String(getWeightValue('texture'))
+// }))
+
+function getNodeArcScores(node: RepresentativeNode) {
+  const structure = node.score_structure ?? 0
+  const color = node.score_color ?? 0
+  const texture = node.score_texture ?? 0
+  return {
+    structure: String(clamp(structure, 0, 1)),
+    color: String(clamp(color, 0, 1)),
+    texture: String(clamp(texture, 0, 1))
+  }
+}
 
 const orbitSceneStyle = computed(() => ({
   transform: `translate(${orbitOffsetX.value}px, ${orbitOffsetY.value}px) scale(${orbitScale.value})`
@@ -683,6 +712,28 @@ function resetPreviewTransform() {
   isImageDragging.value = false
 }
 
+async function urlToFile(url: string, filename: string): Promise<File> {
+  const response = await fetch(url)
+  const blob = await response.blob()
+  return new File([blob], filename, { type: blob.type })
+}
+
+function getFixedImageForPainting(selectedPainting: string): string | null {
+  if (selectedPainting === 'furongjinjitu') {
+    return jinjiSamImage
+  }
+  if (selectedPainting === 'zhuquetu') {
+    return zhuqueSamImage
+  }
+  // if (selectedPainting === 'shanchajixuetu') {
+  //   return shanchaSamImage
+  // }
+  if (selectedPainting === 'meimotu') {
+    return momeiSamImage
+  }
+  return null
+}
+
 async function runSearch() {
   if (!props.searchFile) return
 
@@ -697,7 +748,22 @@ async function runSearch() {
   hoverItem.value = null
 
   const formData = new FormData()
-  formData.append('file', props.searchFile)
+  
+  // 根据选种的画作类型决定使用哪个文件
+  let searchFile: File = props.searchFile
+  const fixedImageUrl = getFixedImageForPainting(props.selectedPainting)
+  if (fixedImageUrl) {
+    try {
+      searchFile = await urlToFile(fixedImageUrl, `${props.selectedPainting}_search.png`)
+    } catch (error) {
+      console.error('Failed to load fixed image:', error)
+      // 出错时回退到原始文件
+      searchFile = props.searchFile
+    }
+  }
+  
+  formData.append('file', searchFile)
+  // formData.append('file', props.searchFile)
   formData.append('structure_w', String(getWeightValue('structure')))
   formData.append('color_w', String(getWeightValue('color')))
   formData.append('texture_w', String(getWeightValue('texture')))
@@ -1112,7 +1178,7 @@ function sliderTrackStyle(weight: WeightItem) {
                       cy="50"
                       r="47"
                       pathLength="1"
-                      :stroke-dasharray="`${arcStroke.structure} 1`"
+                      :stroke-dasharray="`${getNodeArcScores(node).structure} 1`"
                     />
                   </g>
                   <g transform="rotate(15 50 50)">
@@ -1128,7 +1194,7 @@ function sliderTrackStyle(weight: WeightItem) {
                       cy="50"
                       r="49"
                       pathLength="1"
-                      :stroke-dasharray="`${arcStroke.color} 1`"
+                      :stroke-dasharray="`${getNodeArcScores(node).color} 1`"
                     />
                   </g>
                   <g transform="rotate(75 50 50)">
@@ -1144,7 +1210,7 @@ function sliderTrackStyle(weight: WeightItem) {
                       cy="50"
                       r="51"
                       pathLength="1"
-                      :stroke-dasharray="`${arcStroke.texture} 1`"
+                      :stroke-dasharray="`${getNodeArcScores(node).texture} 1`"
                     />
                   </g>
                 </svg>

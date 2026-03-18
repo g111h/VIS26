@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import furongjinjituUrl from '../assets/furongjinjitu.jpg'
-import meimotuUrl from '../assets/meimotu.jpg'
-import zhuquetuUrl from '../assets/zhuquetu.jpg'
+import meimotuUrl from '../assets/momeitu.jpg'
+import zhuquetuUrl from '../assets/zhumeihanquetu.jpg'
+import shanchajiUrl from '../assets/shanchajixuetu.jpg'
 
-type PresetImageKey = 'furongjinjitu' | 'zhuquetu' | 'meimotu'
+type PresetImageKey = 'furongjinjitu' | 'zhuquetu' | 'meimotu' | 'shanchajixuetu'
 
 interface Props {
   backendBase?: string
@@ -64,6 +65,10 @@ const PRESET_IMAGE_CONFIG: Record<PresetImageKey, { url: string; fileName: strin
   meimotu: {
     url: meimotuUrl,
     fileName: 'meimotu.jpg'
+  },
+  shanchajixuetu: {
+    url: shanchajiUrl,
+    fileName: 'shanchajixuetu.jpeg'
   }
 }
 

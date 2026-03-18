@@ -8,10 +8,10 @@ import TopBar from './components/TopBar.vue'
 const savedMaskFile = ref<File | null>(null)
 const savedMaskPreview = ref('')
 const selectedSpeciesList = ref<string[]>([])
-const selectedPainting = ref<'furongjinjitu' | 'zhuquetu' | 'meimotu'>('furongjinjitu')
+const selectedPainting = ref<'furongjinjitu' | 'zhuquetu' | 'meimotu' | 'shanchajixuetu'>('furongjinjitu')
 const dimensionLayoutMode = ref<'overlay' | 'stacked'>('overlay')
 const datasetMode = computed<'bird' | 'flower'>(() =>
-  selectedPainting.value === 'meimotu' ? 'flower' : 'bird'
+  selectedPainting.value === 'meimotu' || selectedPainting.value === 'shanchajixuetu' ? 'flower' : 'bird'
 )
 
 watch(datasetMode, (next, prev) => {
@@ -57,8 +57,9 @@ function handleSpeciesChange(speciesList: string[]) {
           </div>
           <select v-model="selectedPainting" class="painting-select" aria-label="选择画作">
             <option value="furongjinjitu">芙蓉锦鸡图</option>
-            <option value="zhuquetu">竹雀图</option>
-            <option value="meimotu">梅墨图</option>
+            <option value="zhuquetu">竹梅寒雀图</option>
+            <option value="meimotu">墨梅图</option>
+            <option value="shanchajixuetu">山茶霁雪图</option>
           </select>
         </div>
       </template>
@@ -73,6 +74,7 @@ function handleSpeciesChange(speciesList: string[]) {
         :search-file="savedMaskFile"
         :reference-image="savedMaskPreview"
         :dataset="datasetMode"
+        :selected-painting="selectedPainting"
         controls-target="#compare-controls-host"
         @species-change="handleSpeciesChange"
       />
